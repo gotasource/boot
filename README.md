@@ -1,6 +1,6 @@
 # Gota Boot
 
-Gota Boot is a development framework for building REST web services API using Typescript/JavaScript base on NodeJS.
+Gota Boot is a development framework for building REST web services API using Typescript/JavaScript on Node Environment.
 
 ## Quickstart
 ### Step 1. Set up the Development Environment
