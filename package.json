@@ -1,0 +1,24 @@
+{
+  "name": "gota-boot",
+  "version": "0.0.4",
+  "description": "",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "caohonghiep",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^2.5.2",
+    "@types/node": "^9.4.6"
+  },
+  "dependencies": {
+    "http": "0.0.0",
+    "gota-service": "latest",	
+    "gota-server":"latest",
+    "reflect-metadata": "^0.1.10"
+  }
+}
