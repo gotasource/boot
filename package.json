@@ -17,8 +17,9 @@
   },
   "dependencies": {
     "http": "0.0.0",
-    "gota-service": "latest",	
-    "gota-server":"latest",
+    "@gota/dao": "latest",
+    "@gota/service": "latest",
+    "@gota/server":"latest",
     "reflect-metadata": "^0.1.10"
   }
 }

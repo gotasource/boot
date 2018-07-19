@@ -1,13 +1,17 @@
 import "reflect-metadata";
 import Booter from "./Booter";
-import GotaServer from "gota-server";
+import GotaServer from "@gota/server";
 
 const DESIGN_META_DATA = {
     APP : 'design:meta:data:key:app',
     CONFIG : 'design:meta:data:key:config',
+    POST_INIT : 'design:meta:data:key:post.init',
+    AUTOWIRED : 'design:meta:data:key:autowired',
     SERVICE : 'design:meta:data:key:service',
+    SERVICE_MAPPING : 'design:meta:data:key:service:mapping',
     PATH : 'design:meta:data:key:path',
     METHOD : 'design:meta:data:key:method',
+    PARAMETER : 'design:meta:data:key:parameter',
     PATH_PARAMETER : 'design:meta:data:key:path:parameter',
     REQUEST : 'design:meta:data:key:request',
     RESPONSE : 'design:meta:data:key:response',
@@ -20,11 +24,12 @@ const DESIGN_META_DATA = {
 };
 
 const REQUEST_METHOD = {
-    GET :'get',
-    POST :'post',//create
-    PUT :'put',// replace
-    PATCH : 'patch',// update
-    DELETE : 'delete'
+    OPTIONS: 'OPTIONS',
+    GET :'GET',
+    POST :'POST',//CREATE
+    PUT :'PUT',// REPLACE
+    PATCH : 'PATCH',// UPDATE
+    DELETE : 'DELETE'
 };
 
 export function GotaApp(obj:{name?: string, scanner:Array<Function>, config:object}) {
@@ -37,8 +42,48 @@ function initApp(){
     return app;
 }
 
+function initConfig(serviceClasses: Array<any>, config: object): Array<any>{
+    let serviceTargets = [];
+    serviceClasses.forEach(serviceClass => {
+        let serviceMetaData = Reflect.getMetadata(DESIGN_META_DATA.SERVICE, serviceClass);
+        let serviceConfig = Object.assign({},config, serviceMetaData? serviceMetaData.config: undefined);
+        Reflect.defineMetadata(DESIGN_META_DATA.CONFIG, serviceConfig, serviceClass);
+        if(serviceMetaData){
+            serviceTargets.push(new serviceClass());
+        }
+    });
+    return serviceTargets;
+}
 
-export function GotaBoot(appClass: Function) {
+function executeMethod(target: object, methods: string[]): Promise<any>{
+    let promises: Promise<any>[] = [];
+    methods.forEach(method =>{
+        promises.push(Promise.resolve(target[method]()));
+    });
+    return Promise.all(promises);
+}
+
+async function executePostInit (serviceTargets : any){
+    if(Array.isArray(serviceTargets)){
+        for(let i = 0; i< (serviceTargets as Array<any>).length; i++){
+            let serviceTarget = (serviceTargets as Array<any>)[i];
+            await executePostInit(serviceTarget);
+        }
+    }else{
+        let serviceTarget: any = serviceTargets;
+        let autowiredProperties= Reflect.getMetadata(DESIGN_META_DATA.AUTOWIRED, serviceTarget) || [];
+        for(let i =0; i< autowiredProperties.length; i++) {
+            let property = autowiredProperties[i];
+            await executePostInit(serviceTarget[property]);
+        }
+        let postInitMethods: Array<Object> = Reflect.getMetadata(DESIGN_META_DATA.POST_INIT, serviceTarget) || [];
+        await executeMethod(serviceTarget, postInitMethods as string[]);
+    }
+
+}
+
+
+export async function GotaBoot(appClass: Function) {
     let gotaAppMetadata  = Reflect.getMetadata(DESIGN_META_DATA.APP, appClass);
     let serviceClasses: Array<any> = gotaAppMetadata.scanner;
     let config = gotaAppMetadata.config;
@@ -50,14 +95,19 @@ export function GotaBoot(appClass: Function) {
     }
 
     let app = initApp();
+    //console.log(`${gotaAppMetadata.name || appClass.name} is starting at ${config.hostName}:${config.port}`);
+    let serviceTargets = initConfig(serviceClasses, config);
+    await executePostInit(serviceTargets);
 
-    serviceClasses.forEach(serviceClass => {
-        let serviceMetaData = Reflect.getMetadata(DESIGN_META_DATA.SERVICE, serviceClass);
-        let serviceConfig = Object.assign({},config, serviceMetaData.config);
-        Reflect.defineMetadata(DESIGN_META_DATA.CONFIG, serviceConfig, serviceClass);
-        Booter.bootService(app, new serviceClass());
-        app.listen(config.port, config.hostName,function () {
-            console.log('>> %s app is listening at %s <<',gotaAppMetadata.name , config.port);
-        });
-    })
+    serviceTargets.forEach(serviceTarget => {
+
+        let serviceMetaData = Reflect.getMetadata(DESIGN_META_DATA.SERVICE, serviceTarget.constructor);
+        let models = serviceMetaData.models;
+        Booter.bootModels(app, serviceMetaData.path, models);
+        Booter.bootService(app, serviceTarget);
+    });
+
+	app.listen(config.port, config.hostName,function () {
+	    console.log(`${gotaAppMetadata.name || appClass.name} is listening at ${config.hostName}:${config.port}`);
+    });
 }
