@@ -307,7 +307,7 @@ export default class Booter {
 
     }
 
-    public static bootModels(server: any, servicePath: string, models: any[]) {
+    public static bootModels(server: any, servicePath: string, models: any[] = []) {
         models.forEach(model =>{
             Booter.bootAModel(server, servicePath, model);
         });
