@@ -1,5 +1,6 @@
 import "reflect-metadata";
-import {DAO} from "@gota/dao";
+import { EntityContainer, DAO} from "@gota/dao";
+import {Helper} from "@gota/core";
 
 const DESIGN_META_DATA = {
     APP : 'design:meta:data:key:app',
@@ -55,7 +56,7 @@ interface ServiceInformation{
     requestMethod:string;
     path:string;
     returnType: Function;
-    awaitedType?: Function;
+    awaitedType?: any;
     requestInformation: Array<ParameterWrapper>;
     service: Object;
     function: Function;
@@ -95,7 +96,7 @@ export default class Booter {
                 function: _function,
                 requestMethod: methodMetaData.requestMethod || REQUEST_METHOD.GET,
                 path: methodMetaData.path,
-                returnType:methodMetaData.returnType,
+                returnType:methodMetaData.returnType(),
                 awaitedType: methodMetaData.awaitedType,
                 parameterWrappers: parameterWrappers
             }
@@ -215,7 +216,7 @@ export default class Booter {
 
     private static bootCollectionService(server: any, collectionService: Array<ServiceInformation>):void{
         collectionService.forEach(serviceInformation => {
-            let config : any = Reflect.getMetadata(DESIGN_META_DATA.CONFIG, serviceInformation.service.constructor);
+            //let config : any = Reflect.getMetadata(DESIGN_META_DATA.CONFIG, serviceInformation.service.constructor);
             // if(config.devMode){
             //     console.log('Apply method "%s" for url: "%s"', serviceInformation.requestMethod, serviceInformation.path);
             // }
@@ -251,6 +252,7 @@ export default class Booter {
 
     private static buildAOptionSummary(url:string, object:any){
         let returnObject = {url:url};
+        let schema =[]
         Object.keys(object).forEach(key =>{
             let responseType:any = object[key]['awaitedType'] || object[key]['returnType'] || 'String';
             let requestData:{path?: object[], headers?: object[], query?: object[], body?: any[]} = {};
@@ -264,22 +266,55 @@ export default class Booter {
                         requestData.headers = requestData.headers || [];
                         requestData.headers.push({name: item.name, type:item.type.name});
                         break;
+                    //case DESIGN_META_DATA.QUERY:{
+                    //    requestData.query = item.type.name
+                    //    break;
+                    //}
                     case DESIGN_META_DATA.QUERY_PARAMETER:
                         requestData.query = requestData.query || [];
                         requestData.query.push({name: item.name, type:item.type.name});
                         break;
+                    //case DESIGN_META_DATA.BODY:{
+                    //    requestData.body = item.type.name
+                    //    break;
+                    //}
                     case DESIGN_META_DATA.BODY_PARAMETER:
                         requestData.body = requestData.body || [];
                         requestData.body.push({name: item.name, type:item.type.name});
                         break;
                 }
+                if(typeof item.type === 'function'){
+                    let childSchema = Helper.collectSchema(item.type);
+                    if(childSchema.length>0){
+                        schema.push(childSchema);
+                    }
+                }
             });
+
+            let returnSchema = [];
+            if(typeof responseType === 'function'){
+                returnSchema = Helper.collectSchema(responseType);
+            } else if(typeof responseType === 'string'){
+                if(responseType.indexOf('<')>-1 && responseType.indexOf('>')>-1){
+                    let genericTypeName = responseType.substring(responseType.indexOf('<')+1, responseType.indexOf('>'));
+                    if(genericTypeName.length>0){
+                        let entity:Function = EntityContainer.findEntity(genericTypeName);
+                        if(entity){
+                            returnSchema = Helper.collectSchema(entity);
+                        }
+                    }
+                }
+            }
+            schema.push(...returnSchema);
             returnObject[key] =
                 {
                     requestData:requestData,
                     responseType: responseType.name || responseType
                 }
         });
+        
+
+        returnObject['schema'] = schema;
         return returnObject;
     }
     private static bootSummaryService(server: any,path:string | string[],  optionServiceInformationList:any):void{
@@ -299,33 +334,56 @@ export default class Booter {
     /////////////////////////////
 
     public static bootService(server: any, service: any) {
+        let serviceMetaData = Reflect.getMetadata(DESIGN_META_DATA.SERVICE, service.constructor);
+        let models = serviceMetaData.models;
+        let modelServiceInformationList:Array<ServiceInformation> = Booter.collectModelsServiceInformation(serviceMetaData.path, models);
+
         let serviceWrapper: ServiceWrapper = Booter.buildServiceWrapper(service);
         let serviceInformationList: Array<ServiceInformation> = Booter.collectServiceInformation(serviceWrapper);
+        serviceInformationList.push(...modelServiceInformationList);
+
         let optionServiceInformationList = Booter.collectOptionsServiceInformation(serviceInformationList);
+
         Booter.bootCollectionService(server, serviceInformationList);
         Booter.bootSummaryService(server, serviceWrapper.path, optionServiceInformationList);
 
     }
 
-    public static bootModels(server: any, servicePath: string, models: any[] = []) {
+
+    private static collectModelsServiceInformation(servicePath, models: any[] = []): Array<ServiceInformation>{
+        let serviceInformation: Array<ServiceInformation> = []
         models.forEach(model =>{
-            Booter.bootAModel(server, servicePath, model);
+            let service =Booter.collectAModelServiceInformation(servicePath, model);
+                serviceInformation.push(...service);
         });
+        return serviceInformation;
 
     }
 
-    private static bootAModel(server: any, servicePath: string, model: any) {
+    private static collectAModelServiceInformation(servicePath, model: any): Array<ServiceInformation> {
         let dao = new DAO(model);
         dao.initCollection();
         let modelPath = model.name.replace(/[A-Z]/g, (match, offset, string)=> {
             return (offset ? '-' : '') + match.toLowerCase();
         });
 
+        let declaredProperties = Helper.findDeclaredProperties(model).filter(property => property.name !== '_id')
+
         let bodyParameter:ParameterWrapper = {
             designMetaData: DESIGN_META_DATA.BODY,
             name: 'body',
-            type: Object
+            type: model
         }
+
+        let bodyParameters: ParameterWrapper[] = declaredProperties
+            .map(item => {
+                    return {
+                        designMetaData: DESIGN_META_DATA.BODY_PARAMETER,
+                        name:item.name,
+                        type:item.type
+                    }
+                }
+            );
 
         let idPathParameter:ParameterWrapper = {
             designMetaData: DESIGN_META_DATA.PATH_PARAMETER,
@@ -336,24 +394,34 @@ export default class Booter {
         let queryParameter:ParameterWrapper = {
             designMetaData: DESIGN_META_DATA.QUERY,
             name: 'query',
-            type: Object
+            type: model
         }
 
-    let unUnitName = function (str: string): string{
-        var re = new RegExp(/./g)
-        str = str.toLowerCase();
-        str = str.replace(/!|@|%|\^|\*|\(|\)|\+|\=|\<|\>|\?|\/|,|\.|\:|\;|\'|\"|\&|\#|\[|\]|~|\$|_|`|-|{|}|\||\\/g," ");
-        str = str.replace(/a|à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g,'(a|à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ)');
-        str = str.replace(/e|è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g,'(e|è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ)');
-        str = str.replace(/i|ì|í|ị|ỉ|ĩ/g,'(i|ì|í|ị|ỉ|ĩ)');
-        str = str.replace(/o|ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g,'(o|ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ)');
-        str = str.replace(/u|ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g,'(u|ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ)');
-        str = str.replace(/y|ỳ|ý|ỵ|ỷ|ỹ/g,'(y|ỳ|ý|ỵ|ỷ|ỹ)');
-        str = str.replace(/d|đ/g,'(d|đ)');
+        let queryParameters: ParameterWrapper[] = declaredProperties
+            .map(item =>{
+                    return {
+                        designMetaData: DESIGN_META_DATA.QUERY_PARAMETER,
+                        name: item.name,
+                        type: item.type
+                    }
+            }
+            );
 
-        str = str.trim();
-        str = str.replace(/ +/g,"(.*)");
-        return str;
+        let unUnitName = function (str: string): string{
+            var re = new RegExp(/./g)
+            str = str.toLowerCase();
+            str = str.replace(/!|@|%|\^|\*|\(|\)|\+|\=|\<|\>|\?|\/|,|\.|\:|\;|\'|\"|\&|\#|\[|\]|~|\$|_|`|-|{|}|\||\\/g," ");
+            str = str.replace(/a|à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g,'(a|à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ)');
+            str = str.replace(/e|è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g,'(e|è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ)');
+            str = str.replace(/i|ì|í|ị|ỉ|ĩ/g,'(i|ì|í|ị|ỉ|ĩ)');
+            str = str.replace(/o|ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g,'(o|ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ)');
+            str = str.replace(/u|ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g,'(u|ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ)');
+            str = str.replace(/y|ỳ|ý|ỵ|ỷ|ỹ/g,'(y|ỳ|ý|ỵ|ỷ|ỹ)');
+            str = str.replace(/d|đ/g,'(d|đ)');
+
+            str = str.trim();
+            str = str.replace(/ +/g,"(.*)");
+            return str;
         }
 
         let executes = {
@@ -379,11 +447,32 @@ export default class Booter {
                 // if(query && Object.keys(query).find(key => query[key] == '$')){
                 //     result = await dao.createChild(query, body);
                 // }else {
-                    let _id = await dao.create(body);
+                let _id;
+                if(Array.isArray(body)){
+                    _id = await dao.createMany(body);
+                }else{
+                    _id = await dao.create(body);
+                }
+
                 //}
 
                 return {_id: _id};
             },
+
+            update: async function (id, body){
+                let result = await dao.update(id, body);
+                return {result: result};
+            },
+            updateMany: async function (query, body){
+                let result = await dao.updateMany(query, body);
+                return {result: result};
+            },
+
+            delete: async function (id){
+                let result = await dao.delete(id);
+                return {result: result};
+            },
+
             createChild:  async function (id, query, body){
                 let result;
                 if(query && Object.keys(query).find(key => query[key] == '$')) {
@@ -392,44 +481,103 @@ export default class Booter {
                 }
                 return {result: result};
             },
-            update: async function (id, query, body){
-                let result;
+            updateChild: async function (id, query, body){
+                let result;// Todo
                 if(query && Object.keys(query).find(key => query[key] == '$')) {
                     let childProperty = Object.keys(query).find(key => query[key] == '$');
                     let childQuery = Object.assign(query);
                     childQuery[childProperty] = undefined;
                     result = await dao.updateChild(id, childProperty, childQuery, body);
-                }else{
-                    result = await dao.update(id, body);
                 }
 
                 return {result: result};
-            },
-            delete: async function (id, body){
-                let result = await dao.delete(id);
-                return {result: result};
-            },
-            options: ()=>{ return {ok:1}},
-            updateMany: async function (query, body){
-                let result = await dao.updateMany(query, body);
-                return {result: result};
-            },
+            }
+
         };
 
-        server.addMapping(`${servicePath}/${modelPath}`,  REQUEST_METHOD.OPTIONS, [], executes.options);
-        server.addMapping(`${servicePath}/${modelPath}`,  REQUEST_METHOD.GET, [queryParameter],  executes.search);
-        server.addMapping(`${servicePath}/${modelPath}`,  REQUEST_METHOD.POST, [bodyParameter], executes.create);
+        let search: ServiceInformation = {
+            requestMethod:  REQUEST_METHOD.GET,
+            path:`${servicePath}/${modelPath}`,
+            returnType: Promise,
+            awaitedType: `Array<${model.name}>`,
+            requestInformation: [... queryParameters],
+            service: null,
+            function: executes.search
+        }
 
-        //update many
-        server.addMapping(`${servicePath}/${modelPath}`,  REQUEST_METHOD.PATCH, [queryParameter, bodyParameter], executes.updateMany);
+        let create: ServiceInformation = {
+            requestMethod:  REQUEST_METHOD.POST,
+            path:`${servicePath}/${modelPath}`,
+            returnType: Promise,
+            awaitedType: model.name,
+            requestInformation: [... bodyParameters],
+            service: null,
+            function: executes.create
+        }
 
-        server.addMapping(`${servicePath}/${modelPath}/:id`,  REQUEST_METHOD.OPTIONS, [], executes.options);
-        server.addMapping(`${servicePath}/${modelPath}/:id`,  REQUEST_METHOD.GET, [idPathParameter], executes.read);
-        server.addMapping(`${servicePath}/${modelPath}/:id`,  REQUEST_METHOD.POST, [idPathParameter, queryParameter, bodyParameter], executes.createChild);
-        server.addMapping(`${servicePath}/${modelPath}/:id`,  REQUEST_METHOD.PUT, [idPathParameter, queryParameter, bodyParameter], executes.update);
-        server.addMapping(`${servicePath}/${modelPath}/:id`,  REQUEST_METHOD.PATCH, [idPathParameter, queryParameter, bodyParameter], executes.update);
-        server.addMapping(`${servicePath}/${modelPath}/:id`,  REQUEST_METHOD.DELETE, [idPathParameter], executes.delete);
+        let update: ServiceInformation = {
+            requestMethod:  REQUEST_METHOD.PATCH,
+            path:`${servicePath}/${modelPath}/:id`,
+            returnType: Promise,
+            awaitedType: `Array<${model.name}>`,
+            requestInformation: [idPathParameter, ...bodyParameters],
+            service: null,
+            function:executes.update
+        }
 
+        let updateMany: ServiceInformation = {
+            requestMethod:  REQUEST_METHOD.PATCH,
+            path:`${servicePath}/${modelPath}`,
+            returnType: Promise,
+            awaitedType: `Array<${model.name}>`,
+            requestInformation: [...queryParameters, ... bodyParameters],
+            service: null,
+            function: executes.updateMany
+        }
+
+        let read: ServiceInformation = {
+            requestMethod:  REQUEST_METHOD.GET,
+            path:`${servicePath}/${modelPath}/:id`,
+            returnType: Promise,
+            awaitedType: `Array<${model.name}>`,
+            requestInformation: [idPathParameter],
+            service: null,
+            function: executes.read
+        }
+
+        let createChild: ServiceInformation = {
+            requestMethod:  REQUEST_METHOD.POST,
+            path:`${servicePath}/${modelPath}/:id`,
+            returnType: Promise,
+            awaitedType: `Array<${model.name}>`,
+            requestInformation: [idPathParameter, queryParameter, bodyParameter],
+            service: null,
+            function: executes.createChild
+        }
+
+
+
+        let updateChild: ServiceInformation = {
+            requestMethod:  REQUEST_METHOD.PATCH,
+            path:`${servicePath}/${modelPath}/:id`,
+            returnType: Promise,
+            awaitedType: `Array<${model.name}>`,
+            requestInformation: [idPathParameter, queryParameter, bodyParameter],
+            service: null,
+            function:executes.update
+        }
+
+        let _delete: ServiceInformation = {
+            requestMethod:  REQUEST_METHOD.DELETE,
+            path:`${servicePath}/${modelPath}/:id`,
+            returnType: Promise,
+            awaitedType: `Array<${model.name}>`,
+            requestInformation: [idPathParameter],
+            service: null,
+            function:executes.delete
+        }
+
+        return [search, create, updateMany, read, createChild, update, _delete];
     }
 
 }

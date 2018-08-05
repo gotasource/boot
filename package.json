@@ -1,11 +1,12 @@
 {
-  "name": "gota-boot",
-  "version": "0.0.4",
+  "name": "@gota/boot",
+  "version": "0.0.13",
   "description": "",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "prepublish": "gtc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -19,7 +20,7 @@
     "http": "0.0.0",
     "@gota/dao": "latest",
     "@gota/service": "latest",
-    "@gota/server":"latest",
+    "@gota/server": "latest",
     "reflect-metadata": "^0.1.10"
   }
 }
