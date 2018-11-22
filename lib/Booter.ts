@@ -1,6 +1,7 @@
 import "reflect-metadata";
-import { EntityContainer, DAO} from "@gota/dao";
 import {Helper} from "@gota/core";
+import {DAO, DynamicAccessMode, EntityContainer} from "@gota/dao";
+import {RequestMethod} from "@gota/service";
 
 const DESIGN_META_DATA = {
     APP : 'design:meta:data:key:app',
@@ -253,40 +254,59 @@ export default class Booter {
     private static buildAOptionSummary(url:string, object:any){
         let returnObject = {url:url};
         let schema =[]
-        Object.keys(object).forEach(key =>{
-            let responseType:any = object[key]['awaitedType'] || object[key]['returnType'] || 'String';
-            let requestData:{path?: object[], headers?: object[], query?: object[], body?: any[]} = {};
-            object[key]['requestInformation'].forEach(item => {
-                switch (item.designMetaData){
+        Object.keys(object).forEach(requestMethod =>{
+            let responseType:any = object[requestMethod]['awaitedType'] || object[requestMethod]['returnType'] || 'String';
+            let requestData:{path?: any[], headers?: any[], query?: any[], body?: any[]} = {};
+            object[requestMethod]['requestInformation'].forEach(parameterWrapper => {
+
+                let parameterColection:Array<{name:string, type: String}>;
+                let declaredProperties:Array<{name:string, type: Function, dynamicAccessMode?:Array<String>}>;
+
+                if([DESIGN_META_DATA.HEADERS, DESIGN_META_DATA.QUERY, DESIGN_META_DATA.BODY].includes(parameterWrapper.designMetaData)){
+                    declaredProperties = Helper.findDeclaredProperties(parameterWrapper.type);
+                    //Filter for Dynamic Access
+                    if([RequestMethod.POST, RequestMethod.PUT].includes(requestMethod)){
+                        declaredProperties = declaredProperties.filter(declaredProperty => {
+                            return !declaredProperty.dynamicAccessMode || (declaredProperty.dynamicAccessMode as Array<String>).includes(DynamicAccessMode.WRITE);
+                        });
+                    }else if(requestMethod === RequestMethod.GET){
+                        declaredProperties = declaredProperties.filter(declaredProperty => {
+                            return !declaredProperty.dynamicAccessMode || (declaredProperty.dynamicAccessMode as Array<String>).includes(DynamicAccessMode.READ);
+                        });
+                    }
+                }else{
+                    declaredProperties = [{name: parameterWrapper.name, type:parameterWrapper.type}];
+                }
+                switch (parameterWrapper.designMetaData){
                     case DESIGN_META_DATA.PATH_PARAMETER:
-                        requestData.path = requestData.path || [];
-                        requestData.path.push({name: item.name, type:item.type.name});
+                        parameterColection = requestData.path = requestData.path || [];
                         break;
+                    case DESIGN_META_DATA.HEADERS:
                     case DESIGN_META_DATA.HEADERS_PARAMETER:
-                        requestData.headers = requestData.headers || [];
-                        requestData.headers.push({name: item.name, type:item.type.name});
+                        parameterColection = requestData.headers = requestData.headers || [];
                         break;
-                    //case DESIGN_META_DATA.QUERY:{
-                    //    requestData.query = item.type.name
-                    //    break;
-                    //}
+                    case DESIGN_META_DATA.QUERY:
                     case DESIGN_META_DATA.QUERY_PARAMETER:
-                        requestData.query = requestData.query || [];
-                        requestData.query.push({name: item.name, type:item.type.name});
+                        parameterColection = requestData.query = requestData.query || [];
                         break;
-                    //case DESIGN_META_DATA.BODY:{
-                    //    requestData.body = item.type.name
-                    //    break;
-                    //}
+                    case DESIGN_META_DATA.BODY:
                     case DESIGN_META_DATA.BODY_PARAMETER:
                         requestData.body = requestData.body || [];
-                        requestData.body.push({name: item.name, type:item.type.name});
+                        parameterColection = requestData.body;
                         break;
                 }
-                if(typeof item.type === 'function'){
-                    let childSchema = Helper.collectSchema(item.type);
+
+                declaredProperties.forEach(property => {
+                    let sameProperty = parameterColection.find(p => p.name === property.name);
+                    if(!sameProperty){
+                        parameterColection.push({name: property.name, type:property.type.name});
+                    }
+                });
+
+                if(typeof parameterWrapper.type === 'function'){
+                    let childSchema = Helper.collectSchema(parameterWrapper.type);
                     if(childSchema.length>0){
-                        schema.push(childSchema);
+                        schema.push(...childSchema);
                     }
                 }
             });
@@ -306,7 +326,7 @@ export default class Booter {
                 }
             }
             schema.push(...returnSchema);
-            returnObject[key] =
+            returnObject[requestMethod] =
                 {
                     requestData:requestData,
                     responseType: responseType.name || responseType
@@ -314,13 +334,13 @@ export default class Booter {
         });
         
 
-        returnObject['schema'] = schema;
+        returnObject['schema'] = schema.filter((schemaItem, index) => index === schema.findIndex(item => item.name ===schemaItem.name));
         return returnObject;
     }
     private static bootSummaryService(server: any,path:string | string[],  optionServiceInformationList:any):void{
         let summary =[];
-        Object.keys(optionServiceInformationList).forEach(key =>{
-            summary.push(Booter.buildAOptionSummary(key,optionServiceInformationList[key]));
+        Object.keys(optionServiceInformationList).forEach(url =>{
+            summary.push(Booter.buildAOptionSummary(url,optionServiceInformationList[url]));
         });
 
         summary.forEach(s=>{
@@ -375,15 +395,15 @@ export default class Booter {
             type: model
         }
 
-        let bodyParameters: ParameterWrapper[] = declaredProperties
-            .map(item => {
-                    return {
-                        designMetaData: DESIGN_META_DATA.BODY_PARAMETER,
-                        name:item.name,
-                        type:item.type
-                    }
-                }
-            );
+        //let bodyParameters: ParameterWrapper[] = declaredProperties
+        //    .map(item => {
+        //            return {
+        //                designMetaData: DESIGN_META_DATA.BODY_PARAMETER,
+        //                name:item.name,
+        //                type:item.type
+        //            }
+        //        }
+        //    );
 
         let idPathParameter:ParameterWrapper = {
             designMetaData: DESIGN_META_DATA.PATH_PARAMETER,
@@ -407,34 +427,66 @@ export default class Booter {
             }
             );
 
-        let unUnitName = function (str: string): string{
-            var re = new RegExp(/./g)
-            str = str.toLowerCase();
-            str = str.replace(/!|@|%|\^|\*|\(|\)|\+|\=|\<|\>|\?|\/|,|\.|\:|\;|\'|\"|\&|\#|\[|\]|~|\$|_|`|-|{|}|\||\\/g," ");
-            str = str.replace(/a|à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g,'(a|à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ)');
-            str = str.replace(/e|è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g,'(e|è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ)');
-            str = str.replace(/i|ì|í|ị|ỉ|ĩ/g,'(i|ì|í|ị|ỉ|ĩ)');
-            str = str.replace(/o|ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g,'(o|ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ)');
-            str = str.replace(/u|ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g,'(u|ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ)');
-            str = str.replace(/y|ỳ|ý|ỵ|ỷ|ỹ/g,'(y|ỳ|ý|ỵ|ỷ|ỹ)');
-            str = str.replace(/d|đ/g,'(d|đ)');
 
-            str = str.trim();
-            str = str.replace(/ +/g,"(.*)");
-            return str;
-        }
 
         let executes = {
             search: async function (query){
-                Object.keys(query).forEach(key => {
-                    if(query[key].startsWith('$regex:')){
-                        let regexValue = query[key].substring('$regex:'.length).trim();
-                        regexValue = unUnitName(regexValue);
-                        query[key] = {
-                            $regex:new RegExp(regexValue, 'i')
-                        }
+                function regexFormat(value){
+                    if (value && typeof value.startsWith === 'function' &&  value.startsWith('$regex:')) {
+                        let regexValue = value.substring('$regex:'.length).trim();
+                        regexValue = Helper.searchVNStringRegexFormat(regexValue);
+                        //value = {
+                        //    $regex: new RegExp(regexValue, 'i')
+                        //}
+
+                        value = new RegExp(regexValue, 'i');
                     }
-                });
+                    return value;
+                }
+                if(query) {
+                    query =JSON.parse(JSON.stringify(query));
+                    Object.keys(query).forEach(queryParam => {
+                        let queryValue = query[queryParam];
+                        if(Array.isArray(queryValue)){
+                            queryValue = queryValue.map(val => regexFormat(val));
+                        }else{
+                            queryValue = regexFormat(queryValue);
+                        }
+
+
+                        query[queryParam] = queryValue;
+                        let prefixSuffixAndPropertyItem: {prefix: String, suffix: String, property: String} = Helper.separatePrefixSuffixAndPropertyItem(queryParam);//$or:address.geographic.latitude$gte
+                        let newQueryParam = prefixSuffixAndPropertyItem.property;//address.geographic.latitude
+                        let prefix = prefixSuffixAndPropertyItem.prefix;// $or
+                        let suffix = prefixSuffixAndPropertyItem.suffix;//$gte
+
+                        if(newQueryParam !== queryParam){
+                            delete(query[queryParam]);// = undefined;
+
+                            let suffixObject;
+                            if(suffix){
+                                suffixObject = {};
+                                suffixObject[suffix as string] = queryValue;//{$gte: 0.99}
+                            }
+                            let propertyObject;
+                            propertyObject = {};
+                            propertyObject[newQueryParam as string] = suffixObject || queryValue; //  { price : {$gte: 0.99} } || { price : 0.99 }
+                            if(prefix){
+                                query[prefix as string] =  query[prefix as string] || [];
+                                query[prefix as string].push(propertyObject);
+                            }else{
+                                if(typeof query[newQueryParam as string] === 'object'){
+                                    query[newQueryParam as string] = Object.assign(query[newQueryParam as string], propertyObject[newQueryParam as string]);
+                                }else {
+                                    query = Object.assign(query, propertyObject);
+                                }
+
+                            }
+                        }
+
+                    });
+                }
+                // query =JSON.parse(JSON.stringify(query));
                 let t = await dao.search(query);
                 return t;
             },
@@ -500,7 +552,7 @@ export default class Booter {
             path:`${servicePath}/${modelPath}`,
             returnType: Promise,
             awaitedType: `Array<${model.name}>`,
-            requestInformation: [... queryParameters],
+            requestInformation: [queryParameter],
             service: null,
             function: executes.search
         }
@@ -510,7 +562,7 @@ export default class Booter {
             path:`${servicePath}/${modelPath}`,
             returnType: Promise,
             awaitedType: model.name,
-            requestInformation: [... bodyParameters],
+            requestInformation: [bodyParameter],
             service: null,
             function: executes.create
         }
@@ -520,7 +572,7 @@ export default class Booter {
             path:`${servicePath}/${modelPath}/:id`,
             returnType: Promise,
             awaitedType: `Array<${model.name}>`,
-            requestInformation: [idPathParameter, ...bodyParameters],
+            requestInformation: [idPathParameter, bodyParameter],
             service: null,
             function:executes.update
         }
@@ -530,7 +582,7 @@ export default class Booter {
             path:`${servicePath}/${modelPath}`,
             returnType: Promise,
             awaitedType: `Array<${model.name}>`,
-            requestInformation: [...queryParameters, ... bodyParameters],
+            requestInformation: [queryParameter, bodyParameter],
             service: null,
             function: executes.updateMany
         }

@@ -1,6 +1,6 @@
 {
   "name": "@gota/boot",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -13,14 +13,14 @@
   "author": "caohonghiep",
   "license": "MIT",
   "devDependencies": {
-    "typescript": "^2.5.2",
-    "@types/node": "^9.4.6"
+    "@types/node": "^9.6.39",
+    "typescript": "^2.9.2"
   },
   "dependencies": {
+    "@gota/dao": "0.0.5",
+    "@gota/server": "0.0.3",
+    "@gota/service": "0.0.4",
     "http": "0.0.0",
-    "@gota/dao": "latest",
-    "@gota/service": "latest",
-    "@gota/server": "latest",
     "reflect-metadata": "^0.1.10"
   }
 }

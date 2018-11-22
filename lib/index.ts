@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import Booter from "./Booter";
-import GotaServer from "@gota/server";
+import { GotaServer } from "@gota/server";
 
 const DESIGN_META_DATA = {
     APP : 'design:meta:data:key:app',
