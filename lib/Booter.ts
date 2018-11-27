@@ -2,11 +2,13 @@ import "reflect-metadata";
 import {Helper} from "@gota/core";
 import {DAO, DynamicAccessMode, EntityContainer} from "@gota/dao";
 import {RequestMethod} from "@gota/service";
+import { BeanContext } from "@gota/injection";
 
 const DESIGN_META_DATA = {
     APP : 'design:meta:data:key:app',
     CONFIG : 'design:meta:data:key:config',
     SERVICE : 'design:meta:data:key:service',
+    AUTOWIRED : 'design:meta:data:key:autowired',
     SERVICE_MAPPING : 'design:meta:data:key:service:mapping',
     PATH : 'design:meta:data:key:path',
     METHOD : 'design:meta:data:key:method',
@@ -19,7 +21,9 @@ const DESIGN_META_DATA = {
     BODY : 'design:meta:data:key:body',
     BODY_PARAMETER : 'design:meta:data:key:body:parameter',
     HEADERS : 'design:meta:data:key:headers',
-    HEADERS_PARAMETER : 'design:meta:data:key:headers:parameter'
+    HEADERS_PARAMETER : 'design:meta:data:key:headers:parameter',
+    DAO_OF_MODEL: 'design:meta:data:key:dao:of:model',
+    MODEL_OF_DAO: 'design:meta:data:key:model:of:dao'
 };
 
 const REQUEST_METHOD = {
@@ -352,10 +356,24 @@ export default class Booter {
     }
 
     /////////////////////////////
-
+    private static collectModels(service: any){
+        let autowiredProperties= Reflect.getMetadata(DESIGN_META_DATA.AUTOWIRED, service) || [];
+        let models = [];
+        for(let i =0; i< autowiredProperties.length; i++) {
+            let property = autowiredProperties[i];
+            let type: any = Reflect.getMetadata("design:typeinfo", service, property).type();
+            let model = Reflect.getMetadata(DESIGN_META_DATA.MODEL_OF_DAO, type);
+            if(model){
+                models.push(model);
+            }
+        }
+        return models;
+    }
+    /////////////////////////////
     public static bootService(server: any, service: any) {
+       
         let serviceMetaData = Reflect.getMetadata(DESIGN_META_DATA.SERVICE, service.constructor);
-        let models = serviceMetaData.models;
+        let models =  Booter.collectModels(service);
         let modelServiceInformationList:Array<ServiceInformation> = Booter.collectModelsServiceInformation(serviceMetaData.path, models);
 
         let serviceWrapper: ServiceWrapper = Booter.buildServiceWrapper(service);
@@ -380,9 +398,10 @@ export default class Booter {
 
     }
 
+    /////////////
     private static collectAModelServiceInformation(servicePath, model: any): Array<ServiceInformation> {
-        let dao = new DAO(model);
-        dao.initCollection();
+        let daoType = Reflect.getMetadata(DESIGN_META_DATA.DAO_OF_MODEL, model);
+        let dao = BeanContext.getBean(daoType.name);
         let modelPath = model.name.replace(/[A-Z]/g, (match, offset, string)=> {
             return (offset ? '-' : '') + match.toLowerCase();
         });
