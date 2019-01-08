@@ -42,16 +42,25 @@ function initApp(){
     return app;
 }
 
-function initConfig(serviceClasses: Array<any>, config: object): Array<any>{
-    let serviceTargets = [];
-    serviceClasses.forEach(serviceClass => {
-        let serviceMetaData = Reflect.getMetadata(DESIGN_META_DATA.SERVICE, serviceClass);
-        let serviceConfig = Object.assign({},config, serviceMetaData? serviceMetaData.config: undefined);
-        Reflect.defineMetadata(DESIGN_META_DATA.CONFIG, serviceConfig, serviceClass);
-        serviceTargets.push(new serviceClass());
+function initConfig(classes: Array<any>, config: object): Array<any>{
+    let targets = [];
+    classes.forEach(serviceClass => {
+        let metaData = Reflect.getMetadata(DESIGN_META_DATA.SERVICE, serviceClass);
+        let newConfig = Object.assign({},config, metaData? metaData.config: undefined);
+        Reflect.defineMetadata(DESIGN_META_DATA.CONFIG, newConfig, serviceClass);
 
+        let target = new serviceClass();
+        // init config for properties child class
+        let autowiredProperties:  Array<string> = Reflect.getMetadata(DESIGN_META_DATA.AUTOWIRED, target);
+        if(autowiredProperties){
+            let propertiesClass = autowiredProperties.map(property => {
+                return Reflect.getMetadata("design:typeinfo", target, property).type();
+            });
+            initConfig(propertiesClass, newConfig);
+        }
+        targets.push(target);
     });
-    return serviceTargets;
+    return targets;
 }
 
 function executeMethod(target: object, methods: string[]): Promise<any>{
