@@ -34,9 +34,9 @@ npm run build
 ```bash
 npm run start
 ```
- open your browser on [http://localhost:3000/quick_start/hello?lastName=Boot&firstName=Gota][quick_start_hello]
+ open your browser on [http://localhost:3001/store-service/products/2][quick_start_hello]
 
 [gota_cli_github]:https://github.com/gotasource/cli
 [nodejs_download]: https://nodejs.org/en/download/
 [git-scm]:https://git-scm.com/
-[quick_start_hello]:http://localhost:3000/quick_start/hello?lastName=Boot&firstName=Gota
+[quick_start_hello]:http://localhost:3001/store-service/products/2
