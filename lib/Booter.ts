@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import {Helper} from "@gota/core";
-import {DAO, DynamicAccessMode, EntityContainer} from "@gota/dao";
+import {DynamicAccessMode, EntityContainer} from "@gota/dao";
 import {RequestMethod} from "@gota/service";
 import { BeanContext } from "@gota/injection";
 

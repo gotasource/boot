@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import Booter from "./Booter";
-import { GotaServer } from "@gota/server";
+import { GotaServer, ServerFilter } from "@gota/server";
 
 const DESIGN_META_DATA = {
     APP : 'design:meta:data:key:app',
@@ -32,7 +32,11 @@ const REQUEST_METHOD = {
     DELETE : 'DELETE'
 };
 
-export function GotaApp(obj:{name?: string, scanner:Array<Function>, config:object}) {
+export function GotaApp(obj: {name?: string,
+    scanner:Array<Function>,
+    config:object,
+    filters?: Array<new() => ServerFilter>
+}) {
     return Reflect.metadata(DESIGN_META_DATA.APP, obj);
 }
 
@@ -93,16 +97,17 @@ async function executePostInit (serviceTargets : any){
 
 export async function GotaBoot(appClass: Function) {
     let gotaAppMetadata  = Reflect.getMetadata(DESIGN_META_DATA.APP, appClass);
-    let serviceClasses: Array<any> = gotaAppMetadata.scanner;
+    let serviceClasses: Array<Function> = gotaAppMetadata.scanner;
+    let filterClasses: Array<new() => ServerFilter> = gotaAppMetadata.filters;
     let config = gotaAppMetadata.config;
     if(!serviceClasses){
         throw new Error('Please make sure "scanner" in "@GotaApp" Metadata of "'+appClass.name+'" is not empty.');
     }
-    if(!Array.isArray(serviceClasses)){
-        serviceClasses = [serviceClasses];
+    let app = initApp();
+    if(filterClasses){
+        app.addFilters(filterClasses.map(filterClass => new filterClass()));
     }
 
-    let app = initApp();
     //console.log(`${gotaAppMetadata.name || appClass.name} is starting at ${config.hostName}:${config.port}`);
     let serviceTargets = initConfig(serviceClasses, config);
     await executePostInit(serviceTargets);
