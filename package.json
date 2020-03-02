@@ -1,12 +1,13 @@
 {
   "name": "@gota/boot",
-  "version": "0.0.20",
+  "version": "0.0.22",
   "description": "",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
     "prepublish": "gtc",
+    "publish": "npm publish --access public",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

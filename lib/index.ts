@@ -124,6 +124,6 @@ export async function GotaBoot(appClass: Function) {
     });
 
 	app.listen(config.port, config.hostName,function () {
-	    console.log(`${gotaAppMetadata.name || appClass.name} is listening at ${config.hostName}:${config.port}`);
+	    console.log(`${gotaAppMetadata.name || appClass.name} is started => http://${config.hostName}:${config.port}`);
     });
 }
