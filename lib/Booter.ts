@@ -1,8 +1,9 @@
-import "reflect-metadata";
-import {Helper} from "@gota/core";
-import {DynamicAccessMode, EntityContainer} from "@gota/dao";
-import {RequestMethod} from "@gota/service";
-import { BeanContext } from "@gota/injection";
+import 'reflect-metadata';
+import {Helper} from '@gota/core';
+import {DynamicAccessMode, EntityContainer, Model} from '@gota/dao';
+import {RequestMethod} from '@gota/service';
+import { BeanContext } from '@gota/injection';
+import {GotaServer} from '@gota/server';
 
 const DESIGN_META_DATA = {
     APP : 'design:meta:data:key:app',
@@ -210,7 +211,7 @@ export default class Booter {
         return serviceInformationList;
     }
 
-    private static bootAcollectionServiceItem(server: any, serviceInformation: ServiceInformation):void{
+    private static bootAcollectionServiceItem(server: GotaServer, serviceInformation: ServiceInformation):void{
         let app = server;
         let path: string = serviceInformation.path;
         let requestMethod: string = serviceInformation.requestMethod ;
@@ -219,7 +220,7 @@ export default class Booter {
         app.addMapping(path, requestMethod, serviceInformation.requestInformation, _function, service)
     }
 
-    private static bootCollectionService(server: any, collectionService: Array<ServiceInformation>):void{
+    private static bootCollectionService(server: GotaServer, collectionService: Array<ServiceInformation>):void{
         collectionService.forEach(serviceInformation => {
             //let config : any = Reflect.getMetadata(DESIGN_META_DATA.CONFIG, serviceInformation.service.constructor);
             // if(config.devMode){
@@ -300,12 +301,15 @@ export default class Booter {
                         break;
                 }
 
-                declaredProperties.forEach(property => {
-                    let sameProperty = parameterColection.find(p => p.name === property.name);
-                    if(!sameProperty){
-                        parameterColection.push({name: property.name, type:property.type.name});
-                    }
-                });
+                if(Array.isArray(parameterColection) && Array.isArray(declaredProperties)){
+                    declaredProperties.forEach(property => {
+                        let sameProperty = parameterColection.find(p => p.name === property.name);
+                        if(!sameProperty){
+                            parameterColection.push({name: property.name, type:property.type.name});
+                        }
+                    });
+                }
+
 
                 if(typeof parameterWrapper.type === 'function'){
                     let childSchema = Helper.collectSchema(parameterWrapper.type);
@@ -356,24 +360,36 @@ export default class Booter {
     }
 
     /////////////////////////////
-    private static collectModels(service: any){
+    private static collectModels(service: any): Array<new(...args: any[])=> Model>{
+        let serviceMetaData = Reflect.getMetadata(DESIGN_META_DATA.SERVICE, service.constructor);
         let autowiredProperties= Reflect.getMetadata(DESIGN_META_DATA.AUTOWIRED, service) || [];
-        let models = [];
+        let modelsOfAutowired = [];
         for(let i =0; i< autowiredProperties.length; i++) {
             let property = autowiredProperties[i];
-            let type: any = Reflect.getMetadata("design:typeinfo", service, property).type();
+            let type: any = Reflect.getMetadata('design:typeinfo', service, property).type();
             let model = Reflect.getMetadata(DESIGN_META_DATA.MODEL_OF_DAO, type);
             if(model){
-                models.push(model);
+                modelsOfAutowired.push(model);
+            }
+        }
+
+        let models:  Array<new(...args: any[])=> Model> = serviceMetaData.generate;
+        if(models === undefined){
+            models = modelsOfAutowired;
+        } if (Array.isArray(models) && models.length) {
+            let modelsAreNotInAutowired = models.filter(model => !modelsOfAutowired.includes(model));
+            if(modelsAreNotInAutowired.length > 0){
+                throw new Error('Missing Data Access(DAO) for  model(s): ' + modelsAreNotInAutowired.map(model => model.name)+ ' in properties of ' + service.name + ' Servive '
+                    + '\n\t');
             }
         }
         return models;
     }
     /////////////////////////////
-    public static bootService(server: any, service: any) {
+    public static bootService(server: GotaServer, service: any) {
        
         let serviceMetaData = Reflect.getMetadata(DESIGN_META_DATA.SERVICE, service.constructor);
-        let models =  Booter.collectModels(service);
+        let models: Array<new(...args: any[])=> Model> =  Booter.collectModels(service);
         let modelServiceInformationList:Array<ServiceInformation> = Booter.collectModelsServiceInformation(serviceMetaData.path, models);
 
         let serviceWrapper: ServiceWrapper = Booter.buildServiceWrapper(service);
@@ -388,9 +404,9 @@ export default class Booter {
     }
 
 
-    private static collectModelsServiceInformation(servicePath, models: any[] = []): Array<ServiceInformation>{
+    private static collectModelsServiceInformation(servicePath, models: Array<new(...args: any[])=> Model> = []): Array<ServiceInformation>{
         let serviceInformation: Array<ServiceInformation> = []
-        models.forEach(model =>{
+        models.forEach((model: new(...args: any[])=> Model) =>{
             let service =Booter.collectAModelServiceInformation(servicePath, model);
                 serviceInformation.push(...service);
         });
@@ -399,7 +415,7 @@ export default class Booter {
     }
 
     /////////////
-    private static collectAModelServiceInformation(servicePath, model: any): Array<ServiceInformation> {
+    private static collectAModelServiceInformation(servicePath, model: new(...args: any[])=> Model): Array<ServiceInformation> {
         let daoType = Reflect.getMetadata(DESIGN_META_DATA.DAO_OF_MODEL, model);
         let dao = BeanContext.getBean(daoType.name);
         let modelPath = model.name.replace(/[A-Z]/g, (match, offset, string)=> {
@@ -433,7 +449,7 @@ export default class Booter {
         let queryParameter:ParameterWrapper = {
             designMetaData: DESIGN_META_DATA.QUERY,
             name: 'query',
-            type: model
+            type: Object
         }
 
         let queryParameters: ParameterWrapper[] = declaredProperties
@@ -463,49 +479,50 @@ export default class Booter {
                     return value;
                 }
                 if(query) {
-                    query =JSON.parse(JSON.stringify(query));
-                    Object.keys(query).forEach(queryParam => {
-                        let queryValue = query[queryParam];
-                        if(Array.isArray(queryValue)){
-                            queryValue = queryValue.map(val => regexFormat(val));
-                        }else{
-                            queryValue = regexFormat(queryValue);
-                        }
-
-
-                        query[queryParam] = queryValue;
-                        let prefixSuffixAndPropertyItem: {prefix: String, suffix: String, property: String} = Helper.separatePrefixSuffixAndPropertyItem(queryParam);//$or:address.geographic.latitude$gte
-                        let newQueryParam = prefixSuffixAndPropertyItem.property;//address.geographic.latitude
-                        let prefix = prefixSuffixAndPropertyItem.prefix;// $or
-                        let suffix = prefixSuffixAndPropertyItem.suffix;//$gte
-
-                        if(newQueryParam !== queryParam){
-                            delete(query[queryParam]);// = undefined;
-
-                            let suffixObject;
-                            if(suffix){
-                                suffixObject = {};
-                                suffixObject[suffix as string] = queryValue;//{$gte: 0.99}
-                            }
-                            let propertyObject;
-                            propertyObject = {};
-                            propertyObject[newQueryParam as string] = suffixObject || queryValue; //  { price : {$gte: 0.99} } || { price : 0.99 }
-                            if(prefix){
-                                query[prefix as string] =  query[prefix as string] || [];
-                                query[prefix as string].push(propertyObject);
-                            }else{
-                                if(typeof query[newQueryParam as string] === 'object'){
-                                    query[newQueryParam as string] = Object.assign(query[newQueryParam as string], propertyObject[newQueryParam as string]);
-                                }else {
-                                    query = Object.assign(query, propertyObject);
-                                }
-
-                            }
-                        }
-
-                    });
+                //     query =JSON.parse(JSON.stringify(query));
+                //     Object.keys(query).forEach(queryParam => {
+                //         let queryValue = query[queryParam];
+                //         if(Array.isArray(queryValue)){
+                //             queryValue = queryValue.map(val => regexFormat(val));
+                //         }else{
+                //             queryValue = regexFormat(queryValue);
+                //         }
+                //
+                //
+                //         query[queryParam] = queryValue;
+                //         let prefixSuffixAndPropertyItem: {prefix: String, suffix: String, property: String} = Helper.separatePrefixSuffixAndPropertyItem(queryParam);//$or:address.geographic.latitude$gte
+                //         let newQueryParam = prefixSuffixAndPropertyItem.property;//address.geographic.latitude
+                //         let prefix = prefixSuffixAndPropertyItem.prefix;// $or
+                //         let suffix = prefixSuffixAndPropertyItem.suffix;//$gte
+                //
+                //         if(newQueryParam !== queryParam){
+                //             delete(query[queryParam]);// = undefined;
+                //
+                //             let suffixObject;
+                //             if(suffix){
+                //                 suffixObject = {};
+                //                 suffixObject[suffix as string] = queryValue;//{$gte: 0.99}
+                //             }
+                //             let propertyObject;
+                //             propertyObject = {};
+                //             propertyObject[newQueryParam as string] = suffixObject || queryValue; //  { price : {$gte: 0.99} } || { price : 0.99 }
+                //             if(prefix){
+                //                 query[prefix as string] =  query[prefix as string] || [];
+                //                 query[prefix as string].push(propertyObject);
+                //             }else{
+                //                 if(typeof query[newQueryParam as string] === 'object'){
+                //                     query[newQueryParam as string] = Object.assign(query[newQueryParam as string], propertyObject[newQueryParam as string]);
+                //                 }else {
+                //                     query = Object.assign(query, propertyObject);
+                //                 }
+                //
+                //             }
+                //         }
+                //
+                //     });
                 }
-                // query =JSON.parse(JSON.stringify(query));
+                query = Helper.flatProperties(query);
+                query = Helper.regexFormat(query);
                 let t = await dao.search(query);
                 return t;
             },
@@ -514,20 +531,19 @@ export default class Booter {
                 return t;
             },
             create: async function (body){
-                // let _id, result;
-                // if(query && Object.keys(query).find(key => query[key] == '$')){
-                //     result = await dao.createChild(query, body);
-                // }else {
-                let _id;
-                if(Array.isArray(body)){
-                    _id = await dao.createMany(body);
-                }else{
-                    _id = await dao.create(body);
-                }
+				// let _id, result;
+				// if(query && Object.keys(query).find(key => query[key] == '$')){
+				//     result = await dao.createChild(query, body);
+				// }else {
+				let _id;
+				if(Array.isArray(body)){
+				    _id = await dao.createMany(body);
+				}else{
+				    _id = await dao.create(body);
+				}
 
-                //}
-
-                return {_id: _id};
+				//}
+				return {_id, id: _id};
             },
 
             update: async function (id, body){

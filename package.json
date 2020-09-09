@@ -1,6 +1,6 @@
 {
   "name": "@gota/boot",
-  "version": "0.0.22",
+  "version": "0.0.29",
   "description": "",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
