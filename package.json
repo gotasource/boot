@@ -1,12 +1,12 @@
 {
   "name": "@gota/boot",
-  "version": "0.0.29",
+  "version": "0.0.32",
   "description": "",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "prepublish": "gtc",
+    "build": "gtc",
+    "prepublishOnly": "gtc",
     "publish": "npm publish --access public",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -14,12 +14,12 @@
   "author": "caohonghiep",
   "license": "MIT",
   "devDependencies": {
-    "@types/node": "^9.6.41",
+    "@types/node": "^9.6.58",
     "typescript": "^2.9.2"
   },
   "dependencies": {
-    "@gota/injection": "latest",
     "@gota/dao": "latest",
+    "@gota/injection": "latest",
     "@gota/server": "latest",
     "@gota/service": "latest",
     "http": "0.0.0",

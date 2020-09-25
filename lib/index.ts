@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import Booter from "./Booter";
-import { GotaServer, ServerFilter } from "@gota/server";
+import { GotaServer, ServerFilter, ApplicationFilter } from "@gota/server";
 import {Helper} from "@gota/core";
 
 const DESIGN_META_DATA = {
@@ -38,7 +38,7 @@ const executedPostInit =[];
 export function GotaApp(obj: {name?: string,
     scanner:Array<Function>,
     config:object,
-    filters?: Array<new() => ServerFilter>
+    filters?: Array<new() => ApplicationFilter>
 }) {
     return Reflect.metadata(DESIGN_META_DATA.APP, obj);
 }
