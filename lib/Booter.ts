@@ -55,7 +55,7 @@ interface FunctionWrapper{
 interface ServiceWrapper{
     service: any;
     path: string | Array<string>;
-    filter?:Array<ServiceFilter>
+    // filters?:Array< new() => ServiceFilter>
     functionWrappers: Array<FunctionWrapper>;
 }
 
@@ -66,7 +66,7 @@ interface ServiceInformation{
     awaitedType?: any;
     requestInformation: Array<ParameterWrapper>;
     service: Object;
-    filter?:Array<ServiceFilter>
+    // filters?:Array< new() => ServiceFilter>
     function: Function;
 }
 
@@ -79,7 +79,7 @@ export default class Booter {
             service: service,
             path: serviceMetaData.path,
             functionWrappers: functionWrappers,
-            filter: serviceMetaData.filter
+            // filters: serviceMetaData.filters
         };
         return serviceWrapper;
     }
@@ -205,7 +205,7 @@ export default class Booter {
                             returnType: functionWrapper.returnType,
                             awaitedType: functionWrapper.awaitedType,
                             requestInformation: functionWrapper.parameterWrappers,
-                            filter: serviceWrapper.filter
+                            // filters: serviceWrapper.filters
                         }
                         serviceInformationList.push(serviceInformation)
                     })
@@ -221,7 +221,15 @@ export default class Booter {
         let requestMethod: string = serviceInformation.requestMethod ;
         let _function = serviceInformation.function;
         let service = serviceInformation.service;
-        app.addFilters(serviceInformation.filter || []);
+        // if(isArray(serviceInformation.filters) && serviceInformation.filters.length){
+        //     const filters = serviceInformation.filters.map(filterClass => {
+        //         const filter =  new filterClass();
+        //         filter['path'] = path;
+        //         return filter;
+        //     });
+        //     app.addFilters(filters);
+        // }
+
         app.addMapping(path, requestMethod, serviceInformation.requestInformation, _function, service);
     }
 
@@ -399,7 +407,7 @@ export default class Booter {
 
         let serviceWrapper: ServiceWrapper = Booter.buildServiceWrapper(service);
         let serviceInformationList: Array<ServiceInformation> = Booter.collectServiceInformation(serviceWrapper);
-        serviceInformationList.push(...modelServiceInformationList);
+        serviceInformationList = [...modelServiceInformationList, ...serviceInformationList];
 
         let optionServiceInformationList = Booter.collectOptionsServiceInformation(serviceInformationList);
 
@@ -536,20 +544,18 @@ export default class Booter {
                 return t;
             },
             create: async function (body){
-                // let _id, result;
-                // if(query && Object.keys(query).find(key => query[key] == '$')){
-                //     result = await dao.createChild(query, body);
-                // }else {
-                let _id;
-                if(Array.isArray(body)){
-                    _id = await dao.createMany(body);
-                }else{
-                    _id = await dao.create(body);
-                }
+				let _id;
+				                if(Array.isArray(body)){
+				                    // _id  = await dao.createMany(body);
+				                    return await dao.createMany(body);
+				                }else{
+				                    // _id = await dao.create(body);
+				                    return await dao.create(body);
+				                }
 
-                //}
+				                //}
 
-                return {_id, id: _id};
+				                return {_id, id: _id};
             },
 
             update: async function (id, body){

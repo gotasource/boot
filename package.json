@@ -1,6 +1,6 @@
 {
   "name": "@gota/boot",
-  "version": "0.0.32",
+  "version": "0.0.35",
   "description": "",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -15,7 +15,8 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^9.6.58",
-    "typescript": "^2.9.2"
+    "typescript": "^2.9.2",
+    "@gota/cli": "latest"
   },
   "dependencies": {
     "@gota/dao": "latest",

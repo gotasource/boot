@@ -1,7 +1,8 @@
 import "reflect-metadata";
-import Booter from "./Booter";
-import { GotaServer, ServerFilter, ApplicationFilter } from "@gota/server";
 import {Helper} from "@gota/core";
+import Booter from "./Booter";
+import { GotaServer, ServerFilter, ApplicationFilter, ServiceFilter } from "@gota/server";
+
 
 const DESIGN_META_DATA = {
     APP : 'design:meta:data:key:app',
@@ -109,15 +110,38 @@ async function executePostInit (serviceTargets : any){
 export async function GotaBoot(appClass: Function) {
     let gotaAppMetadata  = Reflect.getMetadata(DESIGN_META_DATA.APP, appClass);
     let serviceClasses: Array<Function> = gotaAppMetadata.scanner;
-    let filterClasses: Array<new() => ServerFilter> = gotaAppMetadata.filters;
+    let appFilterClasses: Array<new() => ApplicationFilter> = gotaAppMetadata.filters;
     let config = gotaAppMetadata.config;
     if(!serviceClasses){
         throw new Error('Please make sure "scanner" in "@GotaApp" Metadata of "'+appClass.name+'" is not empty.');
     }
     const app: GotaServer = initApp();
-    if(filterClasses){
-        app.addFilters(filterClasses.map(filterClass => new filterClass()));
+
+    if(appFilterClasses){
+        app.addFilters(appFilterClasses.map(filterClass => new filterClass()));
     }
+
+    let serviceFilters: Array<ServiceFilter> = [];
+    serviceClasses.forEach(serviceClass => {
+        let serviceMetaData = Reflect.getMetadata(DESIGN_META_DATA.SERVICE, serviceClass);
+        if(Array.isArray(serviceMetaData.filters) && serviceMetaData.filters.length) {
+            serviceMetaData.filters.forEach(filterClass => {
+                let filter = serviceFilters.find(filterInLoop => filterInLoop instanceof filterClass);
+                if(filter){
+                    filter['paths'].push(serviceMetaData.path);
+                }else{
+                    filter = new filterClass();
+                    filter['paths'] = [serviceMetaData.path];
+                    serviceFilters.push(filter);
+                }
+            })
+        }
+    });
+
+    if(serviceFilters.length){
+        app.addFilters(serviceFilters);
+    }
+
 
     //console.log(`${gotaAppMetadata.name || appClass.name} is starting at ${config.hostName}:${config.port}`);
     let serviceTargets = initConfig(serviceClasses, config);
